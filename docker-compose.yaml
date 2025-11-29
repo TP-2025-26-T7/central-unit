@@ -1,0 +1,14 @@
+services:
+  central-unit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: central-unit
+    ports:
+      - "8000:8000"
+    networks:
+      - tp-net
+
+networks:
+  tp-net:
+    external: true
