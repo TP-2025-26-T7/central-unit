@@ -8,7 +8,6 @@ router = APIRouter(
     tags=["sumo"],
 )
 
-
 class Junction(BaseModel):
     junction_id: str
     edge_count: int
