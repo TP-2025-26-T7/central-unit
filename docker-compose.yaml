@@ -15,13 +15,7 @@ services:
       - tp-net
     volumes:
       - ./data:/app/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
 
 networks:
   tp-net:
-    driver: bridge
+    external: true
