@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   central-unit:
     build:
@@ -5,4 +7,21 @@ services:
       dockerfile: Dockerfile
     container_name: central-unit
     ports:
-      - "8000:8000"
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ALG_RUNNER_URL=http://alg-runner:8000
+    networks:
+      - tp-net
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  tp-net:
+    driver: bridge
