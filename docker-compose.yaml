@@ -11,6 +11,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - ALG_RUNNER_URL=http://alg-runner:8000
+      - SUMO_API_URL=http://sumo-api:8002 
     networks:
       - tp-net
     volumes:
