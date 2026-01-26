@@ -1,12 +1,15 @@
 # Central Unit
 
-The Central Unit is a FastAPI-based orchestration service designed to handle communication between traffic simulation modules (like SUMO) and network simulation bridges (OMNeT++). It serves as the decision-making core, processing telemetry from vehicles and infrastructure to issue instructions.
+The Central Unit is a FastAPI-based orchestration service designed to handle communication between traffic simulation modules (like SUMO), algorithmic decision engines, and network simulation bridges (OMNeT++). It acts as the central coordinator, processing telemetry from vehicles and infrastructure to issue instructions.
 
 ## Features
 
 *   **FastAPI Framework**: High-performance, asynchronous REST API.
-*   **SUMO Integration**: Dedicated endpoints to receive simulation steps, vehicle data, and junction info.
+*   **SUMO Integration**: Dedicated endpoints to receive simulation steps and forward them for processing.
+*   **SUMO Proxy**: Proxies management and configuration requests to the underlying SUMO API service.
+*   **Algorithm Delegation**: Offloads complex decision-making logic to an external Algorithm Runner service.
 *   **Persistent OMNeT++ Bridge**: A robust, full-duplex TCP client that maintains a persistent connection to an external OMNeT++ bridge for network simulation data exchange.
+*   **Step Logging**: Automatically logs simulation steps and decisions to JSONL files for replay and analysis.
 *   **Dockerized**: Ready for deployment using Docker and Docker Compose.
 
 ## Getting Started (Linux)
@@ -36,8 +39,18 @@ The Central Unit is a FastAPI-based orchestration service designed to handle com
     ```bash
     docker-compose logs -f
     ```
-    The API will be available at `http://localhost:8000`.
-    You can access the interactive API docs at `http://localhost:8000/docs`.
+    The API will be available at `http://localhost:8001`.
+    You can access the interactive API docs at `http://localhost:8001/docs`.
+
+### Configuration
+
+The service can be configured using environment variables (see `docker-compose.yaml`):
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `ALG_RUNNER_URL` | URL of the Algorithm Runner service | `http://alg-runner:8000` |
+| `SUMO_API_URL` | URL of the SUMO Management API | `http://sumo-api:8002` |
+| `PYTHONUNBUFFERED` | Ensure Python output is sent straight to terminal | `1` |
 
 ## Architecture & Communication
 
@@ -78,6 +91,28 @@ The `app/api/sumo_api.py` module handles the interaction with the SUMO traffic s
 **Key Components:**
 
 *   **`POST /sumo/step`**: This is the primary endpoint called by the SUMO simulation loop.
-    *   **Request (`SumoStepRequest`)**: Receives the current state of the simulation, including a list of `Car` objects (id, position, speed) and `Junction` details.
-    *   **Response (`SumoStepResponse`)**: Returns a list of `Instruction` objects. These instructions tell specific cars how to behave (e.g., change speed) in the next simulation step.
-*   **Data Models**: Pydantic models define the structure for `Car`, `Junction`, and `Instruction`, ensuring strict typing and validation of simulation data.
+    *   **Workflow**:
+        1.  Receives the current simulation state (`SumoStepRequest`) containing `Car` positions/speeds and `Junction` details.
+        2.  Forwards this data to the **Algorithm Runner** service (`ALG_RUNNER_URL`) for decision making.
+        3.  Logs the step input and the resulting instructions to `data/step_logs/{module_id}.jsonl` for future analysis or visualization.
+        4.  Returns the generated list of `Instruction` objects to SUMO.
+*   **Data Models**: Pydantic models define the strict typing for `Car`, `Junction`, and `Instruction`.
+
+### Algorithm Runner Integration
+
+The Central Unit acts as a middleware, delegating the complex algorithmic logic to an external service.
+
+*   **Endpoint**: `POST /dispatch` (on the runner service).
+*   **Configuration**: Configured via the `ALG_RUNNER_URL` environment variable (default: `http://localhost:8000`).
+*   **Function**: Isolate the simulation coordination from the specific traffic control algorithms (e.g., FIFO, optimization models).
+
+### SUMO Proxy
+
+To simplify client interactions, the Central Unit includes a proxy module (`app/api/sumo_proxy.py`) that forwards management and configuration requests to the underlying SUMO API service.
+
+*   **Prefix**: `/api/v1`
+*   **Target**: `SUMO_API_URL` (default: `http://sumo-api:8002`).
+*   **Supported Endpoints**:
+    *   Configuration management (`/config`, `/config/{id}/net`)
+    *   Simulation control (`/simulations`, `/simulations/{id}/statistics`)
+*   **Behavior**: Transparently proxies headers, query parameters, and body content, while stripping host-specific headers.
