@@ -29,5 +29,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/TP-2025-26-T7/central-unit:latest
-            ghcr.io/TP-2025-26-T7/central-unit:${{ github.sha }}
+            ghcr.io/tp-2025-26-t7/central-unit:latest
+            ghcr.io/tp-2025-26-t7/central-unit:${{ github.sha }}
