@@ -1,19 +1,15 @@
 import os
-from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 
 router = APIRouter(prefix="/api/v1", tags=["sumo-proxy"])
 
 SUMO_API_URL = os.getenv("SUMO_API_URL", "http://sumo-api:8002").rstrip("/")
 
 
-async def _proxy(
-    request: Request,
-    upstream_path: str,
-) -> Response:
+async def _proxy(request: Request, upstream_path: str) -> Response:
     """
     Generic proxy helper:
     - forwards method, query params, headers (mostly), and body to SUMO API
@@ -21,15 +17,12 @@ async def _proxy(
     """
     url = f"{SUMO_API_URL}{upstream_path}"
 
-    # Forward query params
     params = dict(request.query_params)
 
-    # Forward headers (drop host-related + content-length to avoid issues)
     headers = dict(request.headers)
     headers.pop("host", None)
     headers.pop("content-length", None)
 
-    # Read body (works for JSON and also raw uploads)
     body = await request.body()
 
     async with httpx.AsyncClient(timeout=60.0) as client:
@@ -41,7 +34,6 @@ async def _proxy(
             headers=headers,
         )
 
-    # Copy content-type if present
     content_type = r.headers.get("content-type", "application/octet-stream")
 
     return Response(
@@ -60,7 +52,6 @@ async def list_configs(request: Request):
 
 @router.post("/config")
 async def upload_config(request: Request):
-    # Often this is multipart/form-data. Our proxy forwards raw body + content-type header.
     return await _proxy(request, "/api/v1/config")
 
 
@@ -72,10 +63,17 @@ async def delete_config(config_id: str, request: Request):
 @router.get("/config/{config_id}/net")
 async def get_net(config_id: str, request: Request):
     return await _proxy(request, f"/api/v1/config/{config_id}/net")
+
+
 # ---- Simulation endpoints ----
 
 @router.post("/simulations")
 async def create_simulation(request: Request):
+    return await _proxy(request, "/api/v1/simulations")
+
+
+@router.get("/simulations")
+async def list_simulations(request: Request):
     return await _proxy(request, "/api/v1/simulations")
 
 
@@ -87,7 +85,3 @@ async def get_simulation(sim_id: str, request: Request):
 @router.get("/simulations/{sim_id}/statistics")
 async def get_statistics(sim_id: str, request: Request):
     return await _proxy(request, f"/api/v1/simulations/{sim_id}/statistics")
-
-@router.get("/simulations")
-async def list_simulations(request: Request):
-    return await _proxy(request, "/api/v1/simulations")
