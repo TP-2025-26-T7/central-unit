@@ -9,6 +9,8 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.helpers.omnet_socket import omnet_client
+
 router = APIRouter(
     prefix="/sumo",
     tags=["sumo"],
@@ -58,7 +60,9 @@ class SumoStepResponse(BaseModel):
     output: List[Instruction]
 
 
-def _append_step_log(module_id: str, payload: dict, instructions: list[dict], duration_s: float) -> None:
+def _append_step_log(
+    module_id: str, payload: dict, instructions: list[dict], duration_s: float
+) -> None:
     """Persist each step for later playback on the frontend."""
     record = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -114,6 +118,9 @@ async def sumo_step(body: SumoStepRequest):
         "junctions": junction_payloads,
     }
 
+    # Forward request to OMNeT++ and wait for echo
+    await omnet_client.send_and_receive(payload)
+
     start = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -121,7 +128,9 @@ async def sumo_step(body: SumoStepRequest):
         response.raise_for_status()
         cars = response.json()
     except httpx.TimeoutException as exc:
-        raise HTTPException(status_code=504, detail=f"alg-runner timeout: {exc}") from exc
+        raise HTTPException(
+            status_code=504, detail=f"alg-runner timeout: {exc}"
+        ) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"alg-runner error: {exc}") from exc
     except Exception as exc:
@@ -141,10 +150,15 @@ async def sumo_step(body: SumoStepRequest):
             )
         )
 
+    instruction_dicts = [inst.model_dump(mode="json") for inst in instructions]
+
+    # Forward response to OMNeT++ and wait for echo
+    await omnet_client.send_and_receive({"output": instruction_dicts})
+
     _append_step_log(
         body.module_id,
         body.model_dump(mode="json"),
-        [inst.model_dump(mode="json") for inst in instructions],
+        instruction_dicts,
         duration,
     )
 
