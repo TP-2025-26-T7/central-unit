@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter(
@@ -100,7 +100,7 @@ async def fetch_step_log(module_id: str):
 
 
 @router.post("/step", response_model=SumoStepResponse)
-async def sumo_step(body: SumoStepRequest):
+async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
     junction_payloads = []
     for junction in body.junctions:
         data = junction.model_dump(mode="json")
@@ -141,7 +141,8 @@ async def sumo_step(body: SumoStepRequest):
             )
         )
 
-    _append_step_log(
+    background_tasks.add_task(
+        _append_step_log,
         body.module_id,
         body.model_dump(mode="json"),
         [inst.model_dump(mode="json") for inst in instructions],
