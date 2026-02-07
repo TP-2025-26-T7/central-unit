@@ -8,6 +8,7 @@ from typing import List, Optional
 import httpx
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, ConfigDict, Field
+from app.helpers.omnet_socket import omnet_client
 
 router = APIRouter(
     prefix="/sumo",
@@ -114,10 +115,18 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
         "junctions": junction_payloads,
     }
 
+    # Bounce off OMNeT++ (Outbound: Sumo -> CU -> OMNET -> CU -> Alg)
+    omnet_response = await omnet_client.send_and_receive(payload)
+    if "error" in omnet_response:
+        raise HTTPException(status_code=503, detail=f"OMNeT++ error (outbound): {omnet_response['error']}")
+    
+    # Use the payload received from OMNeT++ for the alg-runner
+    alg_payload = omnet_response
+
     start = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.post(f"{ALG_RUNNER_URL}/dispatch", json=payload)
+            response = await client.post(f"{ALG_RUNNER_URL}/dispatch", json=alg_payload)
         response.raise_for_status()
         cars = response.json()
     except httpx.TimeoutException as exc:
@@ -127,6 +136,16 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {exc}") from exc
     duration = time.perf_counter() - start
+
+    # Bounce off OMNeT++ (Inbound: Alg -> CU -> OMNET -> CU -> Sumo)
+    omnet_back_payload = {"cars": cars}
+    omnet_back_response = await omnet_client.send_and_receive(omnet_back_payload)
+    if "error" in omnet_back_response:
+        raise HTTPException(status_code=503, detail=f"OMNeT++ error (inbound): {omnet_back_response['error']}")
+
+    # Extract cars from OMNeT++ response
+    if "cars" in omnet_back_response:
+        cars = omnet_back_response["cars"]
 
     instructions: List[Instruction] = []
     for car in cars:
@@ -141,12 +160,8 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
             )
         )
 
-<<<<<<< HEAD
     background_tasks.add_task(
         _append_step_log,
-=======
-    _append_step_log(
->>>>>>> parent of c33abac (Update sumo_api.py)
         body.module_id,
         body.model_dump(mode="json"),
         [inst.model_dump(mode="json") for inst in instructions],
