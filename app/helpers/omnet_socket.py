@@ -7,7 +7,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class OmnetClient:
-    def __init__(self, host: str = "127.0.0.1", port: int = 9999):
+    def __init__(self, host: str = "10.255.0.1", port: int = 9999):
         self.host = host
         self.port = port
         self.reader = None
