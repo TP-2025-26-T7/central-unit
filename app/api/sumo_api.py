@@ -141,8 +141,12 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
             )
         )
 
+<<<<<<< HEAD
     background_tasks.add_task(
         _append_step_log,
+=======
+    _append_step_log(
+>>>>>>> parent of c33abac (Update sumo_api.py)
         body.module_id,
         body.model_dump(mode="json"),
         [inst.model_dump(mode="json") for inst in instructions],
