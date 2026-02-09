@@ -8,10 +8,7 @@ from typing import List, Optional
 import httpx
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, ConfigDict, Field
-<<<<<<< HEAD
 from app.helpers.omnet_socket import omnet_client
-=======
->>>>>>> parent of c33abac (Update sumo_api.py)
 
 router = APIRouter(
     prefix="/sumo",
@@ -118,7 +115,6 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
         "junctions": junction_payloads,
     }
 
-<<<<<<< HEAD
     # Bounce off OMNeT++ (Outbound: Sumo -> CU -> OMNET -> CU -> Alg)
     omnet_response = await omnet_client.send_and_receive(payload)
     if "error" in omnet_response:
@@ -127,8 +123,6 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
     # Use the payload received from OMNeT++ for the alg-runner
     alg_payload = omnet_response
 
-=======
->>>>>>> parent of c33abac (Update sumo_api.py)
     start = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -166,12 +160,8 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
             )
         )
 
-<<<<<<< HEAD
     background_tasks.add_task(
         _append_step_log,
-=======
-    _append_step_log(
->>>>>>> parent of c33abac (Update sumo_api.py)
         body.module_id,
         body.model_dump(mode="json"),
         [inst.model_dump(mode="json") for inst in instructions],
