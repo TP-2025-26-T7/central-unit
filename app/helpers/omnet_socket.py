@@ -1,15 +1,16 @@
 import asyncio
 import json
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class OmnetClient:
-    def __init__(self, host: str = "192.168.20.51", port: int = 9999):
-        self.host = host
-        self.port = port
+    def __init__(self, host: str = None, port: int = None):
+        self.host = host or os.getenv("OMNET_HOST", "192.168.20.51")
+        self.port = port or int(os.getenv("OMNET_PORT", 9999))
         self.reader = None
         self.writer = None
         self._lock = asyncio.Lock()
@@ -18,8 +19,15 @@ class OmnetClient:
         """Establishes an async TCP connection to the OMNeT++ bridge."""
         logger.info(f"Attempting to connect to OMNeT++ (TCP) at {self.host}:{self.port}...")
         try:
-            self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
+            self.reader, self.writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port),
+                timeout=5.0
+            )
             logger.info("Successfully connected to OMNeT++ bridge (TCP).")
+        except asyncio.TimeoutError:
+            logger.error(f"Connection to OMNeT++ timed out after 5s")
+            self.reader = None
+            self.writer = None
         except Exception as e:
             logger.error(f"Failed to connect to OMNeT++: {e}")
             self.reader = None

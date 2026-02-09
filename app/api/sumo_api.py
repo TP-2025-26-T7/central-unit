@@ -125,7 +125,7 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
 
     start = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(f"{ALG_RUNNER_URL}/dispatch", json=alg_payload)
         response.raise_for_status()
         cars = response.json()
