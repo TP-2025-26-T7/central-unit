@@ -38,25 +38,26 @@ class OmnetClient:
                 # Send data with newline delimiter for framing
                 message = json.dumps(data).encode('utf-8') + b'\n'
                 self.writer.write(message)
-                await self.writer.drain()
+                
+                # Add timeout for write (5s)
+                await asyncio.wait_for(self.writer.drain(), timeout=5.0)
 
-                # Read response
-                response_line = await self.reader.readline()
+                # Read response with timeout (30s)
+                response_line = await asyncio.wait_for(self.reader.readline(), timeout=30.0)
+                
                 if not response_line:
+                    await self.close()
                     return {"error": "Connection closed by peer"}
 
                 return json.loads(response_line.decode('utf-8'))
 
+            except asyncio.TimeoutError:
+                logger.error("Socket operation timed out")
+                await self.close()
+                return {"error": "OMNeT++ request timed out"}
             except Exception as e:
                 logger.error(f"Socket communication error: {e}")
-                # Force close on error to ensure fresh connection next time
-                if self.writer:
-                    self.writer.close()
-                    try:
-                        await self.writer.wait_closed()
-                    except:
-                        pass
-                self.writer = None
+                await self.close()
                 return {"error": str(e)}
 
     async def close(self):
