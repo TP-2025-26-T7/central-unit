@@ -19,6 +19,8 @@ ALG_RUNNER_URL = os.getenv("ALG_RUNNER_URL", "http://localhost:8000")
 STEP_LOG_DIR = Path("data/step_logs")
 STEP_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+seen_modules = set()
+
 
 class Junction(BaseModel):
     junction_id: str
@@ -102,12 +104,15 @@ async def fetch_step_log(module_id: str):
 
 @router.post("/step", response_model=SumoStepResponse)
 async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
-    junction_payloads = []
-    for junction in body.junctions:
-        data = junction.model_dump(mode="json")
-        data.setdefault("connected_roads_ids", data.get("edges", []))
-        data.setdefault("connected_roads_count", data.get("edge_count", 0))
-        junction_payloads.append(data)
+    junction_payloads = None
+    if body.module_id not in seen_modules:
+        junction_payloads = []
+        for junction in body.junctions:
+            data = junction.model_dump(mode="json")
+            data.setdefault("connected_roads_ids", data.get("edges", []))
+            data.setdefault("connected_roads_count", data.get("edge_count", 0))
+            junction_payloads.append(data)
+        seen_modules.add(body.module_id)
 
     payload = {
         "algorithm_name": body.algorithm_name or "fifo",
