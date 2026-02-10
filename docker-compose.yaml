@@ -12,6 +12,9 @@ services:
       - PYTHONUNBUFFERED=1
       - ALG_RUNNER_URL=http://alg-runner:8000
       - SUMO_API_URL=http://sumo-api:8002 
+      - OMNET_CONNECT_TIMEOUT=15
+      - OMNET_WRITE_TIMEOUT=30
+      - OMNET_READ_TIMEOUT=120
     networks:
       - tp-net
     volumes:

@@ -7,6 +7,10 @@ import os
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+CONNECT_TIMEOUT = float(os.getenv("OMNET_CONNECT_TIMEOUT", "15"))
+WRITE_TIMEOUT   = float(os.getenv("OMNET_WRITE_TIMEOUT", "30"))
+READ_TIMEOUT    = float(os.getenv("OMNET_READ_TIMEOUT", "120"))
+
 class OmnetClient:
     def __init__(self, host: str = None, port: int = None):
         self.host = host or os.getenv("OMNET_HOST", "192.168.20.51")
@@ -21,11 +25,11 @@ class OmnetClient:
         try:
             self.reader, self.writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port),
-                timeout=5.0
+                timeout=CONNECT_TIMEOUT
             )
             logger.info("Successfully connected to OMNeT++ bridge (TCP).")
         except asyncio.TimeoutError:
-            logger.error(f"Connection to OMNeT++ timed out after 5s")
+            logger.error(f"Connection to OMNeT++ timed out after {CONNECT_TIMEOUT}s")
             self.reader = None
             self.writer = None
         except Exception as e:
@@ -47,11 +51,11 @@ class OmnetClient:
                 message = json.dumps(data).encode('utf-8') + b'\n'
                 self.writer.write(message)
                 
-                # Add timeout for write (5s)
-                await asyncio.wait_for(self.writer.drain(), timeout=5.0)
+                # Add timeout for write
+                await asyncio.wait_for(self.writer.drain(), timeout=WRITE_TIMEOUT)
 
-                # Read response with timeout (30s)
-                response_line = await asyncio.wait_for(self.reader.readline(), timeout=30.0)
+                # Read response with timeout
+                response_line = await asyncio.wait_for(self.reader.readline(), timeout=READ_TIMEOUT)
                 
                 if not response_line:
                     await self.close()
