@@ -41,16 +41,25 @@ class OmnetClient:
             self.writer = None
             self.is_connected = False
 
-    async def ensure_connection(self):
-        """Attempts to connect if not already connected."""
+    async def ensure_connection(self, retries=3):
+        """Attempts to connect if not already connected, with retries."""
         print(f"DEBUG: ensure_connection called. Current status: {'Connected' if self.is_connected else 'Disconnected'}", flush=True)
         async with self._lock:
-            # Check safely inside lock
-            if not self.is_connected:
-                print("DEBUG: Not connected. Invoking connect()...", flush=True)
-                await self.connect()
-            else:
+            if self.is_connected:
                 print("DEBUG: Already connected. doing nothing.", flush=True)
+                return
+
+            print(f"DEBUG: Not connected. Attempting to connect with {retries} retries...", flush=True)
+            for i in range(retries):
+                await self.connect()
+                if self.is_connected:
+                    print(f"DEBUG: Connected successfully on attempt {i+1}", flush=True)
+                    return
+                print(f"DEBUG: Connection attempt {i+1} failed.", flush=True)
+                if i < retries - 1:
+                    await asyncio.sleep(1) # Wait a bit between retries
+            
+            print("DEBUG: All connection attempts failed. Proceeding in passthrough mode.", flush=True)
 
     async def send_and_receive(self, data: dict) -> dict:
         """Sends data and waits for the corresponding response using TCP.
@@ -58,10 +67,11 @@ class OmnetClient:
         If OMNeT++ is not connected, returns data as-is (passthrough mode).
         """
         async with self._lock:
-            # Passthrough mode: if not connected, just return the data
+            # Check connection status - NO auto-reconnect here
             if not self.is_connected:
                 # Use print for max visibility in k8s logs
-                print("DEBUG: OMNeT++ not connected - returning data in passthrough mode", flush=True)
+                # Only log strictly necessary info to avoid spam if it happens every step
+                # print("DEBUG: OMNeT++ not connected - returning data in passthrough mode", flush=True) 
                 return data
             
             if self.writer is None or self.writer.is_closing():

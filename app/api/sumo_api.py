@@ -135,8 +135,10 @@ async def register_junctions(body: RegisterJunctionsRequest):
     This simulates the infrastructure being known to the central unit.
     """
     print(f"DEBUG: register_junctions called for module {body.module_id}", flush=True)
-    # Attempt to reconnect to OMNeT++ if not connected (start of simulation)
-    await omnet_client.ensure_connection()
+    
+    # Try multiple connect attempts (e.g. 5) at start of simulation
+    # If this fails, the client stays in disconnected state and uses passthrough.
+    await omnet_client.ensure_connection(retries=5)
 
     junction_payloads = []
     for junction in body.junctions:
