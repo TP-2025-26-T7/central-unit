@@ -22,6 +22,9 @@ class OmnetClient:
 
     async def connect(self):
         """Establishes an async TCP connection to the OMNeT++ bridge."""
+        if self.is_connected:
+            return
+
         print(f"DEBUG: Attempting to connect to OMNeT++ (TCP) at {self.host}:{self.port}...", flush=True)
         try:
             self.reader, self.writer = await asyncio.wait_for(
@@ -32,25 +35,31 @@ class OmnetClient:
             print("DEBUG: Successfully connected to OMNeT++ bridge (TCP).", flush=True)
         except asyncio.TimeoutError:
             print(f"DEBUG: Connection to OMNeT++ timed out after {CONNECT_TIMEOUT}s - running in passthrough mode", flush=True)
-            self.reader = None
-            self.writer = None
-            self.is_connected = False
+            await self.close()
         except Exception as e:
             print(f"DEBUG: Failed to connect to OMNeT++: {e} - running in passthrough mode", flush=True)
-            self.reader = None
-            self.writer = None
-            self.is_connected = False
+            await self.close()
 
     async def ensure_connection(self, retries=3):
-        """Attempts to connect if not already connected, with retries."""
+        """Attempts to connect if not already connected, with retries.
+        
+        It also proactively checks if the existing connection is healthy.
+        """
         print(f"DEBUG: ensure_connection called. Current status: {'Connected' if self.is_connected else 'Disconnected'}", flush=True)
         async with self._lock:
+            # If we think we are connected, verify it doesn't look broken
             if self.is_connected:
-                print("DEBUG: Already connected. doing nothing.", flush=True)
-                return
+                if self.writer is None or self.writer.is_closing():
+                    print("DEBUG: Connection marked as active but writer is closed. Forcing cleanup.", flush=True)
+                    await self.close()
+                else:
+                    print("DEBUG: Already connected. doing nothing.", flush=True)
+                    return
 
             print(f"DEBUG: Not connected. Attempting to connect with {retries} retries...", flush=True)
             for i in range(retries):
+                # Force close before reconnecting to ensure clean state
+                await self.close()
                 await self.connect()
                 if self.is_connected:
                     print(f"DEBUG: Connected successfully on attempt {i+1}", flush=True)
