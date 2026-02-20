@@ -134,6 +134,7 @@ async def register_junctions(body: RegisterJunctionsRequest):
     Register junctions for a module. Called once at simulation start.
     This simulates the infrastructure being known to the central unit.
     """
+    print(f"DEBUG: register_junctions called for module {body.module_id}", flush=True)
     # Attempt to reconnect to OMNeT++ if not connected (start of simulation)
     await omnet_client.ensure_connection()
 

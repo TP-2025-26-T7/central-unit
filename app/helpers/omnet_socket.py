@@ -22,31 +22,35 @@ class OmnetClient:
 
     async def connect(self):
         """Establishes an async TCP connection to the OMNeT++ bridge."""
-        logger.info(f"Attempting to connect to OMNeT++ (TCP) at {self.host}:{self.port}...")
+        print(f"DEBUG: Attempting to connect to OMNeT++ (TCP) at {self.host}:{self.port}...", flush=True)
         try:
             self.reader, self.writer = await asyncio.wait_for(
                 asyncio.open_connection(self.host, self.port),
                 timeout=CONNECT_TIMEOUT
             )
             self.is_connected = True
-            logger.info("Successfully connected to OMNeT++ bridge (TCP).")
+            print("DEBUG: Successfully connected to OMNeT++ bridge (TCP).", flush=True)
         except asyncio.TimeoutError:
-            logger.warning(f"Connection to OMNeT++ timed out after {CONNECT_TIMEOUT}s - running in passthrough mode")
+            print(f"DEBUG: Connection to OMNeT++ timed out after {CONNECT_TIMEOUT}s - running in passthrough mode", flush=True)
             self.reader = None
             self.writer = None
             self.is_connected = False
         except Exception as e:
-            logger.warning(f"Failed to connect to OMNeT++: {e} - running in passthrough mode")
+            print(f"DEBUG: Failed to connect to OMNeT++: {e} - running in passthrough mode", flush=True)
             self.reader = None
             self.writer = None
             self.is_connected = False
 
     async def ensure_connection(self):
         """Attempts to connect if not already connected."""
+        print(f"DEBUG: ensure_connection called. Current status: {'Connected' if self.is_connected else 'Disconnected'}", flush=True)
         async with self._lock:
             # Check safely inside lock
             if not self.is_connected:
+                print("DEBUG: Not connected. Invoking connect()...", flush=True)
                 await self.connect()
+            else:
+                print("DEBUG: Already connected. doing nothing.", flush=True)
 
     async def send_and_receive(self, data: dict) -> dict:
         """Sends data and waits for the corresponding response using TCP.
@@ -56,14 +60,15 @@ class OmnetClient:
         async with self._lock:
             # Passthrough mode: if not connected, just return the data
             if not self.is_connected:
-                logger.debug("OMNeT++ not connected - using passthrough mode")
+                # Use print for max visibility in k8s logs
+                print("DEBUG: OMNeT++ not connected - returning data in passthrough mode", flush=True)
                 return data
             
             if self.writer is None or self.writer.is_closing():
-                logger.warning("Socket is not connected. Attempting to reconnect...")
+                print("DEBUG: Socket writer is None or closing. Attempting to reconnect...", flush=True)
                 await self.connect()
                 if self.writer is None or not self.is_connected:
-                    logger.debug("Reconnection failed - using passthrough mode")
+                    print("DEBUG: Reconnection failed inside send_and_receive - using passthrough mode", flush=True)
                     return data
 
             try:
