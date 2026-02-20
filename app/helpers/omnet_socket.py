@@ -41,6 +41,13 @@ class OmnetClient:
             self.writer = None
             self.is_connected = False
 
+    async def ensure_connection(self):
+        """Attempts to connect if not already connected."""
+        async with self._lock:
+            # Check safely inside lock
+            if not self.is_connected:
+                await self.connect()
+
     async def send_and_receive(self, data: dict) -> dict:
         """Sends data and waits for the corresponding response using TCP.
         

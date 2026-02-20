@@ -134,6 +134,9 @@ async def register_junctions(body: RegisterJunctionsRequest):
     Register junctions for a module. Called once at simulation start.
     This simulates the infrastructure being known to the central unit.
     """
+    # Attempt to reconnect to OMNeT++ if not connected (start of simulation)
+    await omnet_client.ensure_connection()
+
     junction_payloads = []
     for junction in body.junctions:
         data = junction.model_dump(mode="json")
@@ -155,8 +158,8 @@ async def register_junctions(body: RegisterJunctionsRequest):
 @router.post("/car")
 async def receive_single_car(body: SingleCarRequest):
     """
-    Receive a single car's data. Cars are collected until step-complete is called.
-    This simulates V2I communication where each car sends its data independently.
+    Receive a single car's data. Cars are forwarded to OMNeT++ immediately,
+    and the result is collected until step-complete is called.
     """
     module_id = body.module_id
     step_id = body.step_id
@@ -169,9 +172,23 @@ async def receive_single_car(body: SingleCarRequest):
     if step_id not in pending_cars[module_id]:
         pending_cars[module_id][step_id] = []
     
-    # Add car to pending list
+    # Prepare payload for OMNeT++ (per car)
     car_data = body.car.model_dump(mode="json")
-    pending_cars[module_id][step_id].append(car_data)
+    junction_payloads = registered_junctions.get(module_id, [])
+    
+    payload = {
+        "algorithm_name": body.algorithm_name or "fifo",
+        "cars": [car_data],
+        "junctions": junction_payloads,
+    }
+    
+    # Forward to OMNeT++ immediately
+    omnet_response = await omnet_client.send_and_receive(payload)
+    
+    # Extract processed cars (if any) and store them
+    processed_cars = omnet_response.get("cars", [car_data])  # Fallback to original if key missing
+    
+    pending_cars[module_id][step_id].extend(processed_cars)
     
     cars_received = len(pending_cars[module_id][step_id])
     
@@ -203,14 +220,12 @@ async def step_complete(body: StepCompleteRequest, background_tasks: BackgroundT
         # Clean up processed step
         del pending_cars[module_id][step_id]
     
-    payload = {
+    # Payload for Alg Runner (cars are already processed by OMNeT++)
+    alg_payload = {
         "algorithm_name": body.algorithm_name or "fifo",
         "cars": cars,
         "junctions": junction_payloads,  # Send junctions every time to alg-runner
     }
-
-    # Bounce off OMNeT++ (Outbound)
-    alg_payload = await omnet_client.send_and_receive(payload)
 
     start = time.perf_counter()
     try:
