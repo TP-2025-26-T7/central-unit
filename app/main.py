@@ -9,8 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Connect to OMNeT++
-    await omnet_client.connect()
+    # Startup: Connect to OMNeT++ (non-blocking)
+    try:
+        await omnet_client.connect()
+    except Exception as e:
+        print(f"Warning: OMNeT++ connection failed: {e}. App will run without OMNeT support.")
     yield
     # Shutdown: Close connection
     await omnet_client.close()

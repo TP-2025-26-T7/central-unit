@@ -18,6 +18,7 @@ class OmnetClient:
         self.reader = None
         self.writer = None
         self._lock = asyncio.Lock()
+        self.is_connected = False
 
     async def connect(self):
         """Establishes an async TCP connection to the OMNeT++ bridge."""
@@ -27,24 +28,36 @@ class OmnetClient:
                 asyncio.open_connection(self.host, self.port),
                 timeout=CONNECT_TIMEOUT
             )
+            self.is_connected = True
             logger.info("Successfully connected to OMNeT++ bridge (TCP).")
         except asyncio.TimeoutError:
-            logger.error(f"Connection to OMNeT++ timed out after {CONNECT_TIMEOUT}s")
+            logger.warning(f"Connection to OMNeT++ timed out after {CONNECT_TIMEOUT}s - running in passthrough mode")
             self.reader = None
             self.writer = None
+            self.is_connected = False
         except Exception as e:
-            logger.error(f"Failed to connect to OMNeT++: {e}")
+            logger.warning(f"Failed to connect to OMNeT++: {e} - running in passthrough mode")
             self.reader = None
             self.writer = None
+            self.is_connected = False
 
     async def send_and_receive(self, data: dict) -> dict:
-        """Sends data and waits for the corresponding response using TCP."""
+        """Sends data and waits for the corresponding response using TCP.
+        
+        If OMNeT++ is not connected, returns data as-is (passthrough mode).
+        """
         async with self._lock:
+            # Passthrough mode: if not connected, just return the data
+            if not self.is_connected:
+                logger.debug("OMNeT++ not connected - using passthrough mode")
+                return data
+            
             if self.writer is None or self.writer.is_closing():
                 logger.warning("Socket is not connected. Attempting to reconnect...")
                 await self.connect()
-                if self.writer is None:
-                    return {"error": "Connection unavailable"}
+                if self.writer is None or not self.is_connected:
+                    logger.debug("Reconnection failed - using passthrough mode")
+                    return data
 
             try:
                 # Send data with newline delimiter for framing
@@ -59,18 +72,19 @@ class OmnetClient:
                 
                 if not response_line:
                     await self.close()
-                    return {"error": "Connection closed by peer"}
+                    logger.debug("Connection closed by peer - using passthrough mode")
+                    return data
 
                 return json.loads(response_line.decode('utf-8'))
 
             except asyncio.TimeoutError:
-                logger.error("Socket operation timed out")
+                logger.warning("Socket operation timed out - using passthrough mode")
                 await self.close()
-                return {"error": "OMNeT++ request timed out"}
+                return data
             except Exception as e:
-                logger.error(f"Socket communication error: {e}")
+                logger.warning(f"Socket communication error: {e} - using passthrough mode")
                 await self.close()
-                return {"error": str(e)}
+                return data
 
     async def close(self):
         """Closes the socket connection."""
@@ -82,6 +96,7 @@ class OmnetClient:
                 pass
         self.writer = None
         self.reader = None
+        self.is_connected = False
         logger.info("OMNeT++ connection closed.")
 
 # Singleton instance

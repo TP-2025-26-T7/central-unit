@@ -104,9 +104,8 @@ async def fetch_step_log(module_id: str):
 
 @router.post("/step", response_model=SumoStepResponse)
 async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
-    junction_payloads = None
+    junction_payloads = []
     if body.module_id not in seen_modules:
-        junction_payloads = []
         for junction in body.junctions:
             data = junction.model_dump(mode="json")
             data.setdefault("connected_roads_ids", data.get("edges", []))
@@ -121,12 +120,8 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
     }
 
     # Bounce off OMNeT++ (Outbound: Sumo -> CU -> OMNET -> CU -> Alg)
-    omnet_response = await omnet_client.send_and_receive(payload)
-    if "error" in omnet_response:
-        raise HTTPException(status_code=503, detail=f"OMNeT++ error (outbound): {omnet_response['error']}")
-    
-    # Use the payload received from OMNeT++ for the alg-runner
-    alg_payload = omnet_response
+    # If OMNeT++ is not available, this returns the payload unchanged (passthrough mode)
+    alg_payload = await omnet_client.send_and_receive(payload)
 
     start = time.perf_counter()
     try:
@@ -136,6 +131,10 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
         cars = response.json()
     except httpx.TimeoutException as exc:
         raise HTTPException(status_code=504, detail=f"alg-runner timeout: {exc}") from exc
+    except httpx.HTTPStatusError as exc:
+        error_detail = f"alg-runner returned {exc.response.status_code}: {exc.response.text}"
+        print(f"ERROR: {error_detail}")
+        raise HTTPException(status_code=502, detail=error_detail) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"alg-runner error: {exc}") from exc
     except Exception as exc:
@@ -143,14 +142,13 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
     duration = time.perf_counter() - start
 
     # Bounce off OMNeT++ (Inbound: Alg -> CU -> OMNET -> CU -> Sumo)
+    # If OMNeT++ is not available, this returns the payload unchanged (passthrough mode)
     omnet_back_payload = {"cars": cars}
-    omnet_back_response = await omnet_client.send_and_receive(omnet_back_payload)
-    if "error" in omnet_back_response:
-        raise HTTPException(status_code=503, detail=f"OMNeT++ error (inbound): {omnet_back_response['error']}")
+    cars_response = await omnet_client.send_and_receive(omnet_back_payload)
 
-    # Extract cars from OMNeT++ response
-    if "cars" in omnet_back_response:
-        cars = omnet_back_response["cars"]
+    # Extract cars from OMNeT++ response (or passthrough data)
+    if "cars" in cars_response:
+        cars = cars_response["cars"]
 
     instructions: List[Instruction] = []
     for car in cars:
