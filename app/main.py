@@ -39,8 +39,7 @@ def create_app() -> FastAPI:
 
     # Register routers here
     app.include_router(sumo_router)
-    app.include_router(sumo_proxy_router)
-
+    app.include_router(sumo_proxy_router, prefix="/sumo")
     return app
 
 
