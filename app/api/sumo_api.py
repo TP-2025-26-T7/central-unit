@@ -298,13 +298,9 @@ async def step_complete(body: StepCompleteRequest, background_tasks: BackgroundT
 
 # ---- Legacy endpoint (kept for backward compatibility) ----
 
-
+"""
 @router.post("/step", response_model=SumoStepResponse)
 async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
-    """
-    Legacy endpoint: receives all cars and junctions in one request.
-    Junctions are only processed on the first call per module_id.
-    """
     junction_payloads = []
     
     # Check if this is the start of a simulation (time=0 or step=0 usually, or unregistered module)
@@ -389,3 +385,4 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
     )
 
     return SumoStepResponse(output=instructions)
+"""
