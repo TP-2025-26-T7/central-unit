@@ -139,7 +139,7 @@ async def register_junctions(body: RegisterJunctionsRequest):
     
     # Try multiple connect attempts (e.g. 5) at start of simulation
     # This is the dedicated place to retry connection for new simulations using V2I flow.
-    await omnet_client.ensure_connection(retries=5)
+    await omnet_client.ensure_connection(retries=2)
 
     # Clear any old registration to be safe
     if body.module_id in registered_junctions:
@@ -222,7 +222,7 @@ async def step_complete(body: StepCompleteRequest, background_tasks: BackgroundT
     # This acts as a backup retry mechanism if register_junctions failed or was skipped.
     if step_id <= 1 and not omnet_client.is_connected:
         print(f"DEBUG: step_complete (Early step {step_id}) - attempting to connect...", flush=True)
-        await omnet_client.ensure_connection(retries=3)
+        await omnet_client.ensure_connection(retries=2)
     
     # Get registered junctions (empty if not registered)
     junction_payloads = registered_junctions.get(module_id, [])
@@ -243,7 +243,7 @@ async def step_complete(body: StepCompleteRequest, background_tasks: BackgroundT
 
     start = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=3.0) as client:
             response = await client.post(f"{ALG_RUNNER_URL}/dispatch", json=alg_payload)
         response.raise_for_status()
         result_cars = response.json()

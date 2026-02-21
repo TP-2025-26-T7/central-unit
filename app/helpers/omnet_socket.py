@@ -26,8 +26,13 @@ class OmnetClient:
         # Update timestamp to prevent rapid retries if checked externally
         self.last_connect_attempt = asyncio.get_event_loop().time()
         
+        # If we think we are connected, check if the socket is actually open
         if self.is_connected:
-            return
+             if self.writer and not self.writer.is_closing():
+                 return
+             else:
+                 self.is_connected = False
+                 await self.close()
 
         print(f"DEBUG: Attempting to connect to OMNeT++ (TCP) at {self.host}:{self.port}...", flush=True)
         try:
@@ -56,19 +61,29 @@ class OmnetClient:
                 # If writer is closed, force close and reconnect
                 if self.writer is None or self.writer.is_closing():
                     print("DEBUG: Connection marked as active but writer is closed. Forcing cleanup.", flush=True)
+                    # Don't hold lock during close if it can block, but writer.close() is synchronous-ish + wait_closed
                     await self.close()
                 else:
-                    # Connection seems fine
+                    # Connection seems fine -- BUT maybe it's stale?
+                    # We trust it is fine.
                     print("DEBUG: Already connected. doing nothing.", flush=True)
                     return
 
             print(f"DEBUG: Not connected. Attempting to connect with {retries} retries...", flush=True)
             for i in range(retries):
                 # Ensure clean slate before connect
-                if self.writer is not None:
-                     await self.close()
+                # We need to manually reset these because close() inside lock is sometimes tricky if we recurse?
+                # No, close() is safe.
+                # However, calling connect() will try to acquire lock? NO.
+                # connect() does NOT acquire lock. Good.
 
+                # Just in case, force close again to be super clean
+                await self.close()
+
+                # Try connect
+                print(f"DEBUG: Calling self.connect() attempt {i+1}", flush=True)
                 await self.connect()
+                
                 if self.is_connected:
                     print(f"DEBUG: Connected successfully on attempt {i+1}", flush=True)
                     return
