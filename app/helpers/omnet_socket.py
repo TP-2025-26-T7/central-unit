@@ -55,6 +55,7 @@ class OmnetClient:
         It also proactively checks if the existing connection is healthy.
         """
         print(f"DEBUG: ensure_connection called. Current status: {'Connected' if self.is_connected else 'Disconnected'}", flush=True)
+        # We need to lock to prevent multiple simultaneous connection attempts
         async with self._lock:
             # Check if socket is actually healthy
             if self.is_connected:
@@ -72,16 +73,28 @@ class OmnetClient:
             print(f"DEBUG: Not connected. Attempting to connect with {retries} retries...", flush=True)
             for i in range(retries):
                 # Ensure clean slate before connect
-                # We need to manually reset these because close() inside lock is sometimes tricky if we recurse?
-                # No, close() is safe.
-                # However, calling connect() will try to acquire lock? NO.
-                # connect() does NOT acquire lock. Good.
-
                 # Just in case, force close again to be super clean
                 await self.close()
 
                 # Try connect
                 print(f"DEBUG: Calling self.connect() attempt {i+1}", flush=True)
+                
+                # IMPORTANT: connection Logic must NOT hold the lock if it takes a long time?
+                # CONNECT_TIMEOUT is 3s.
+                # If we hold the lock, send_and_receive requests will pile up and timeout the caller (sumo-api).
+                # But we NEED to hold the lock to prevent partial state updates.
+                # The issue is likely that sumo-api (client) times out waiting for US to reply,
+                # because we are busy trying to connect.
+                
+                # So we must ensure we don't block for too long.
+                # Or, we should run this in background?
+                # User request: "still the system if in passtrought wont go into omnet communication even after omnet is up"
+                # The provided log shows a READ TIMEOUT from sumo-api to central-unit.
+                # This means central-unit is taking too long to respond.
+                # This is because ensure_connection(retries=5) takes 5 * 3s = 15s + sleeps.
+                # sumo-api timeout is 30s.
+                # If we are unlucky, or if we have concurrency issues, it times out.
+
                 await self.connect()
                 
                 if self.is_connected:

@@ -139,7 +139,7 @@ async def register_junctions(body: RegisterJunctionsRequest):
     
     # Try multiple connect attempts (e.g. 5) at start of simulation
     # This is the dedicated place to retry connection for new simulations using V2I flow.
-    await omnet_client.ensure_connection(retries=2)
+    await omnet_client.ensure_connection(retries=5)
 
     # Clear any old registration to be safe
     if body.module_id in registered_junctions:
@@ -313,7 +313,8 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
     # If module is NOT registered, treat as new simulation -> Try to connect.
     if body.module_id not in registered_junctions:
         print(f"DEBUG: sumo_step (NEW module {body.module_id}) - attempting to connect...", flush=True)
-        await omnet_client.ensure_connection(retries=2)
+        # Reduced retries to 3 to keep within timeouts
+        await omnet_client.ensure_connection(retries=3)
         
         for junction in body.junctions:
             data = junction.model_dump(mode="json")
@@ -327,7 +328,19 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
     # But checking "is this step 0" is hard without looking at the payload closely, and `SumoStepRequest` doesn't strictly enforce step ID structure in the top level.
     # However, for pure performance "passtrought for the whole sim", we stick to the current logic.
     else:
-        # Use already registered junctions
+        # Module already registered
+        # BUT: Check if this step is sending configuration data (restart scenario)
+        if body.junctions:
+            print(f"DEBUG: sumo_step (RESTART detected for {body.module_id}) - attempting to verify connection...", flush=True)
+            # Use limited retries to avoid 30s caller timeout
+            await omnet_client.ensure_connection(retries=3)
+            
+            # Update registered junctions with new config
+            registered_junctions[body.module_id] = [
+                junction.model_dump(mode="json") for junction in body.junctions
+            ]
+        
+        # Use currently registered junctions
         junction_payloads = registered_junctions[body.module_id]
 
     payload = {
