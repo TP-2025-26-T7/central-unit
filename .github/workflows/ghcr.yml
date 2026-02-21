@@ -2,7 +2,7 @@ name: Build and push image to GHCR
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "passtrought" ]
 
 jobs:
   build:
