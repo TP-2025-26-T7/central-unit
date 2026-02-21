@@ -303,7 +303,7 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
     # If module is NOT registered, treat as new simulation -> Try to connect.
     if body.module_id not in registered_junctions:
         print(f"DEBUG: sumo_step (NEW module {body.module_id}) - attempting to connect...", flush=True)
-        await omnet_client.ensure_connection(retries=5)
+        await omnet_client.ensure_connection(retries=2)
         
         for junction in body.junctions:
             data = junction.model_dump(mode="json")

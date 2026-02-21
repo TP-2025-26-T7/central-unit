@@ -7,7 +7,7 @@ import os
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CONNECT_TIMEOUT = float(os.getenv("OMNET_CONNECT_TIMEOUT", "15"))
+CONNECT_TIMEOUT = float(os.getenv("OMNET_CONNECT_TIMEOUT", "3"))
 WRITE_TIMEOUT   = float(os.getenv("OMNET_WRITE_TIMEOUT", "30"))
 READ_TIMEOUT    = float(os.getenv("OMNET_READ_TIMEOUT", "120"))
 
