@@ -211,14 +211,6 @@ async def step_complete(body: StepCompleteRequest, background_tasks: BackgroundT
     Signal that all cars for this step have been sent.
     Triggers the algorithm computation and returns instructions for all cars.
     """
-    # Periodic reconnection attempt (every 10s) if currently disconnected
-    # This handles restarts or recovery from passthrough mode
-    if not omnet_client.is_connected:
-        now = asyncio.get_event_loop().time()
-        if now - omnet_client.last_connect_attempt > 10.0:
-            print("DEBUG: Periodic reconnection attempt in step_complete...", flush=True)
-            await omnet_client.ensure_connection(retries=1)
-
     module_id = body.module_id
     step_id = body.step_id
     
@@ -303,17 +295,6 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
     Legacy endpoint: receives all cars and junctions in one request.
     Junctions are only processed on the first call per module_id.
     """
-    # Defensive logic: if we are in passthrough mode, try to recover periodically
-    # E.g. every 10 seconds, make ONE attempt to reconnect.
-    # This ensures "simulations started later" get a chance to connect.
-    if not omnet_client.is_connected:
-        now = asyncio.get_event_loop().time()
-        # Retry every 10 seconds if disconnected
-        if now - omnet_client.last_connect_attempt > 10.0:
-            print("DEBUG: Periodic reconnection attempt in sumo_step...", flush=True)
-            # Try once, don't block for long
-            await omnet_client.ensure_connection(retries=1)
-
     junction_payloads = []
     # Only process junctions if not already registered for this module
     if body.module_id not in registered_junctions:

@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.api.sumo_api import router as sumo_router
@@ -14,8 +15,31 @@ async def lifespan(app: FastAPI):
         await omnet_client.connect()
     except Exception as e:
         print(f"Warning: OMNeT++ connection failed: {e}. App will run without OMNeT support.")
+    
+    # Start background task to maintain connection
+    async def maintain_connection():
+        while True:
+            try:
+                if not omnet_client.is_connected:
+                    print("DEBUG: Background task checking OMNeT++ connection...", flush=True)
+                    await omnet_client.ensure_connection(retries=1)
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"ERROR: maintain_connection task failed: {e}", flush=True)
+                await asyncio.sleep(10)
+
+    task = asyncio.create_task(maintain_connection())
+    
     yield
-    # Shutdown: Close connection
+    
+    # Shutdown: Close connection and cancel background task
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
     await omnet_client.close()
 
 
