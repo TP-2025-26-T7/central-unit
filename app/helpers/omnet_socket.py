@@ -80,23 +80,21 @@ class OmnetClient:
             print("DEBUG: All connection attempts failed. Proceeding in passthrough mode.", flush=True)
 
     async def send_and_receive(self, data: dict) -> dict:
-        """Sends data and waits for the corresponding response using TCP.
-        
-        If OMNeT++ is not connected, returns data as-is (passthrough mode).
-        """
+        """Sends data and waits for the corresponding response using TCP."""
+        # Check connection status BEFORE locking
+        # If not connected, return immediately (passthrough) without waiting for lock
+        if not self.is_connected:
+            print("DEBUG: in send_and_receive, is_connected=False (fast check) -> PASSTHROUGH", flush=True)
+            return data
+
+        # If connected, acquire lock to send safely
         async with self._lock:
-            # Check connection status
+            # Re-check inside lock for race conditions
             if not self.is_connected:
-                # Debug print to confirm passthrough
-                print("DEBUG: in send_and_receive, is_connected=False -> PASSTHROUGH", flush=True)
+                print("DEBUG: in send_and_receive, is_connected=False (locked check) -> PASSTHROUGH", flush=True)
                 return data
             
             if self.writer is None or self.writer.is_closing():
-                print("DEBUG: Socket writer is None or closing. Attempting to reconnect...", flush=True)
-                await self.connect()
-                if self.writer is None or not self.is_connected:
-                    print("DEBUG: Reconnection failed inside send_and_receive - using passthrough mode", flush=True)
-                    return data
                 print("DEBUG: Socket writer is None or closing. Attempting to reconnect...", flush=True)
                 await self.connect()
                 if self.writer is None or not self.is_connected:
