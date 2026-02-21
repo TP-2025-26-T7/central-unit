@@ -296,10 +296,13 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
     Junctions are only processed on the first call per module_id.
     """
     junction_payloads = []
-    # Only process junctions if not already registered for this module
+    
+    # Check if this is the start of a simulation (time=0 or step=0 usually, or unregistered module)
+    # Since we don't have explicit step 0 check here (it's in the body), we rely on registration.
+    
+    # If module is NOT registered, treat as new simulation -> Try to connect.
     if body.module_id not in registered_junctions:
-        print(f"DEBUG: sumo_step (first call for {body.module_id}) - attempting to connect...", flush=True)
-        # Force a stronger retry on new module registration
+        print(f"DEBUG: sumo_step (NEW module {body.module_id}) - attempting to connect...", flush=True)
         await omnet_client.ensure_connection(retries=5)
         
         for junction in body.junctions:
@@ -308,6 +311,11 @@ async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
             data.setdefault("connected_roads_count", data.get("edge_count", 0))
             junction_payloads.append(data)
         registered_junctions[body.module_id] = junction_payloads
+        
+    # If module IS registered but we are disconnected, should we verify if this is a "restart"?
+    # If the user restarts the simulation with the SAME module_id, we might missed the chance to reconnect.
+    # But checking "is this step 0" is hard without looking at the payload closely, and `SumoStepRequest` doesn't strictly enforce step ID structure in the top level.
+    # However, for pure performance "passtrought for the whole sim", we stick to the current logic.
     else:
         # Use already registered junctions
         junction_payloads = registered_junctions[body.module_id]

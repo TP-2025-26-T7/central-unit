@@ -11,35 +11,16 @@ from fastapi.middleware.cors import CORSMiddleware
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Connect to OMNeT++ (non-blocking)
+    # This initial connection is optional. If it fails, we start in passthrough mode.
+    # Retries happen on-demand at the start of a simulation (register_junctions or first step).
     try:
         await omnet_client.connect()
     except Exception as e:
-        print(f"Warning: OMNeT++ connection failed: {e}. App will run without OMNeT support.")
-    
-    # Start background task to maintain connection
-    async def maintain_connection():
-        while True:
-            try:
-                if not omnet_client.is_connected:
-                    print("DEBUG: Background task checking OMNeT++ connection...", flush=True)
-                    await omnet_client.ensure_connection(retries=1)
-                await asyncio.sleep(10)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                print(f"ERROR: maintain_connection task failed: {e}", flush=True)
-                await asyncio.sleep(10)
-
-    task = asyncio.create_task(maintain_connection())
+        print(f"Warning: OMNeT++ initial connection failed: {e}. App will start in passthrough mode.")
     
     yield
     
-    # Shutdown: Close connection and cancel background task
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    # Shutdown: Close connection
     await omnet_client.close()
 
 
