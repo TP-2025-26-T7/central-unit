@@ -19,9 +19,13 @@ class OmnetClient:
         self.writer = None
         self._lock = asyncio.Lock()
         self.is_connected = False
+        self.last_connect_attempt = 0  # Timestamp of last attempt
 
     async def connect(self):
         """Establishes an async TCP connection to the OMNeT++ bridge."""
+        # Update timestamp to prevent rapid retries if checked externally
+        self.last_connect_attempt = asyncio.get_event_loop().time()
+        
         if self.is_connected:
             return
 
@@ -47,23 +51,28 @@ class OmnetClient:
         """
         print(f"DEBUG: ensure_connection called. Current status: {'Connected' if self.is_connected else 'Disconnected'}", flush=True)
         async with self._lock:
-            # If we think we are connected, verify it doesn't look broken
+            # Check if socket is actually healthy
             if self.is_connected:
+                # If writer is closed, force close and reconnect
                 if self.writer is None or self.writer.is_closing():
                     print("DEBUG: Connection marked as active but writer is closed. Forcing cleanup.", flush=True)
                     await self.close()
                 else:
+                    # Connection seems fine
                     print("DEBUG: Already connected. doing nothing.", flush=True)
                     return
 
             print(f"DEBUG: Not connected. Attempting to connect with {retries} retries...", flush=True)
             for i in range(retries):
-                # Force close before reconnecting to ensure clean state
-                await self.close()
+                # Ensure clean slate before connect
+                if self.writer is not None:
+                     await self.close()
+
                 await self.connect()
                 if self.is_connected:
                     print(f"DEBUG: Connected successfully on attempt {i+1}", flush=True)
                     return
+                
                 print(f"DEBUG: Connection attempt {i+1} failed.", flush=True)
                 if i < retries - 1:
                     await asyncio.sleep(1) # Wait a bit between retries
@@ -76,14 +85,18 @@ class OmnetClient:
         If OMNeT++ is not connected, returns data as-is (passthrough mode).
         """
         async with self._lock:
-            # Check connection status - NO auto-reconnect here
+            # Check connection status
             if not self.is_connected:
-                # Use print for max visibility in k8s logs
-                # Only log strictly necessary info to avoid spam if it happens every step
-                # print("DEBUG: OMNeT++ not connected - returning data in passthrough mode", flush=True) 
+                # Debug print to confirm passthrough
+                print("DEBUG: in send_and_receive, is_connected=False -> PASSTHROUGH", flush=True)
                 return data
             
             if self.writer is None or self.writer.is_closing():
+                print("DEBUG: Socket writer is None or closing. Attempting to reconnect...", flush=True)
+                await self.connect()
+                if self.writer is None or not self.is_connected:
+                    print("DEBUG: Reconnection failed inside send_and_receive - using passthrough mode", flush=True)
+                    return data
                 print("DEBUG: Socket writer is None or closing. Attempting to reconnect...", flush=True)
                 await self.connect()
                 if self.writer is None or not self.is_connected:
