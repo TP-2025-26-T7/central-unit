@@ -135,11 +135,15 @@ async def register_junctions(body: RegisterJunctionsRequest):
     Register junctions for a module. Called once at simulation start.
     This simulates the infrastructure being known to the central unit.
     """
-    print(f"DEBUG: register_junctions called for module {body.module_id}", flush=True)
+    print(f"DEBUG: register_junctions called for module {body.module_id} (New Simulation Start)", flush=True)
     
     # Try multiple connect attempts (e.g. 5) at start of simulation
-    # If this fails, the client stays in disconnected state and uses passthrough.
+    # This is the dedicated place to retry connection for new simulations using V2I flow.
     await omnet_client.ensure_connection(retries=5)
+
+    # Clear any old registration to be safe
+    if body.module_id in registered_junctions:
+         del registered_junctions[body.module_id]
 
     junction_payloads = []
     for junction in body.junctions:
@@ -214,6 +218,12 @@ async def step_complete(body: StepCompleteRequest, background_tasks: BackgroundT
     module_id = body.module_id
     step_id = body.step_id
     
+    # If this is the FIRST step (or very early), try to ensure connection.
+    # This acts as a backup retry mechanism if register_junctions failed or was skipped.
+    if step_id <= 1 and not omnet_client.is_connected:
+        print(f"DEBUG: step_complete (Early step {step_id}) - attempting to connect...", flush=True)
+        await omnet_client.ensure_connection(retries=3)
+    
     # Get registered junctions (empty if not registered)
     junction_payloads = registered_junctions.get(module_id, [])
     
@@ -285,97 +295,3 @@ async def step_complete(body: StepCompleteRequest, background_tasks: BackgroundT
 
     return SumoStepResponse(output=instructions)
 
-
-# ---- Legacy endpoint (kept for backward compatibility) ----
-
-
-@router.post("/step", response_model=SumoStepResponse)
-async def sumo_step(body: SumoStepRequest, background_tasks: BackgroundTasks):
-    """
-    Legacy endpoint: receives all cars and junctions in one request.
-    Junctions are only processed on the first call per module_id.
-    """
-    junction_payloads = []
-    
-    # Check if this is the start of a simulation (time=0 or step=0 usually, or unregistered module)
-    # Since we don't have explicit step 0 check here (it's in the body), we rely on registration.
-    
-    # If module is NOT registered, treat as new simulation -> Try to connect.
-    if body.module_id not in registered_junctions:
-        print(f"DEBUG: sumo_step (NEW module {body.module_id}) - attempting to connect...", flush=True)
-        await omnet_client.ensure_connection(retries=2)
-        
-        for junction in body.junctions:
-            data = junction.model_dump(mode="json")
-            data.setdefault("connected_roads_ids", data.get("edges", []))
-            data.setdefault("connected_roads_count", data.get("edge_count", 0))
-            junction_payloads.append(data)
-        registered_junctions[body.module_id] = junction_payloads
-        
-    # If module IS registered but we are disconnected, should we verify if this is a "restart"?
-    # If the user restarts the simulation with the SAME module_id, we might missed the chance to reconnect.
-    # But checking "is this step 0" is hard without looking at the payload closely, and `SumoStepRequest` doesn't strictly enforce step ID structure in the top level.
-    # However, for pure performance "passtrought for the whole sim", we stick to the current logic.
-    else:
-        # Use already registered junctions
-        junction_payloads = registered_junctions[body.module_id]
-
-    payload = {
-        "algorithm_name": body.algorithm_name or "fifo",
-        "cars": [car.model_dump(mode="json") for car in body.cars],
-        "junctions": junction_payloads,
-    }
-
-    # Bounce off OMNeT++ (Outbound: Sumo -> CU -> OMNET -> CU -> Alg)
-    # If OMNeT++ is not available, this returns the payload unchanged (passthrough mode)
-    alg_payload = await omnet_client.send_and_receive(payload)
-
-    start = time.perf_counter()
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(f"{ALG_RUNNER_URL}/dispatch", json=alg_payload)
-        response.raise_for_status()
-        cars = response.json()
-    except httpx.TimeoutException as exc:
-        raise HTTPException(status_code=504, detail=f"alg-runner timeout: {exc}") from exc
-    except httpx.HTTPStatusError as exc:
-        error_detail = f"alg-runner returned {exc.response.status_code}: {exc.response.text}"
-        print(f"ERROR: {error_detail}")
-        raise HTTPException(status_code=502, detail=error_detail) from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"alg-runner error: {exc}") from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {exc}") from exc
-    duration = time.perf_counter() - start
-
-    # Bounce off OMNeT++ (Inbound: Alg -> CU -> OMNET -> CU -> Sumo)
-    # If OMNeT++ is not available, this returns the payload unchanged (passthrough mode)
-    omnet_back_payload = {"cars": cars}
-    cars_response = await omnet_client.send_and_receive(omnet_back_payload)
-
-    # Extract cars from OMNeT++ response (or passthrough data)
-    if "cars" in cars_response:
-        cars = cars_response["cars"]
-
-    instructions: List[Instruction] = []
-    for car in cars:
-        car_id = car.get("car_id")
-        if not car_id:
-            continue
-        instructions.append(
-            Instruction(
-                car_id=car_id,
-                speed=car.get("speed"),
-                acceleration=car.get("acceleration"),
-            )
-        )
-
-    background_tasks.add_task(
-        _append_step_log,
-        body.module_id,
-        body.model_dump(mode="json"),
-        [inst.model_dump(mode="json") for inst in instructions],
-        duration,
-    )
-
-    return SumoStepResponse(output=instructions)
